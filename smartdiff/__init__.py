@@ -20,11 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from unidiff import PatchSet, PatchedFile, Hunk
-import typing
-import subprocess
-import os
 import json
+import subprocess
+import typing
+import os
+
+import pydot
+from unidiff import PatchSet, PatchedFile, Hunk
+from pydantic import BaseModel
 
 
 class _PatchMixin(object):
@@ -39,13 +42,56 @@ class _PatchMixin(object):
 
 
 class _CocaMixin(object):
+    TAG_TYPE = "type"
+    TYPE_DIRECT = "direct"
+    TYPE_INDIRECT = "indirect"
+
+    TAG_SRC = "src"
+    TAG_DST = "dst"
+
     def __init__(self):
         self.coca_cmd = "coca"
         self.coca_deps_path = "./coca_reporter/deps.json"
+        self.coca_call_path = "./coca_reporter/call.dot"
         self.coca_deps = None
 
     def exec_coca_analysis(self):
         subprocess.check_call([self.coca_cmd, "analysis"])
+
+    def exec_coca_call_graph(
+        self, function_name: str, package_range: str, direct_only: bool = True
+    ) -> typing.List[typing.Dict]:
+        if os.path.isfile(self.coca_call_path):
+            os.remove(self.coca_call_path)
+
+        cmd = [self.coca_cmd, "call", "-c", function_name]
+        if package_range:
+            cmd += ["-r", f"{package_range}."]
+        subprocess.check_call(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        graphs = pydot.graph_from_dot_file(self.coca_call_path)
+        # only one graph
+        graph = graphs[0]
+        ret = set()
+
+        for each_edge in graph.get_edge_list():
+            cur = (
+                # remove extra `"`
+                each_edge.get_source()[1:-1],
+                each_edge.get_destination()[1:-1],
+                self.TYPE_DIRECT
+                if function_name in each_edge.get_source()
+                else self.TYPE_INDIRECT,
+            )
+            if direct_only and cur[2] == self.TYPE_DIRECT:
+                ret.add(cur)
+
+        return [
+            dict(zip((self.TAG_SRC, self.TAG_DST, self.TAG_TYPE), each)) for each in ret
+        ]
 
     def dep_existed(self) -> bool:
         return self.coca_deps is not None
@@ -62,12 +108,22 @@ class _CocaMixin(object):
         self.coca_deps = ret
 
 
-class DiffBlock(object):
-    def __init__(self):
-        self.file = ""
-        self.start: int = -1
-        self.end: int = -1
-        self.affected_functions = []
+class DiffBlock(BaseModel):
+    file = ""
+    start: int = -1
+    end: int = -1
+    affected_functions: typing.List[dict] = []
+    affected_calls: typing.List[dict] = []
+    affected_r_calls: typing.List[dict] = []
+
+
+class Diff(dict):
+    def to_json(self) -> str:
+        return json.dumps(self, default=lambda o: o.dict())
+
+    def to_json_file(self, file_path: str, **kwargs):
+        with open(file_path, "w", **kwargs) as f:
+            f.write(self.to_json())
 
 
 class SmartDiff(_PatchMixin, _CocaMixin):
@@ -78,8 +134,8 @@ class SmartDiff(_PatchMixin, _CocaMixin):
     def verify(self) -> bool:
         return (self.patch is not None) and (self.coca_deps is not None)
 
-    def find_diff_blocks(self) -> dict:
-        diff_dict = dict()
+    def find_diff_blocks(self) -> Diff:
+        diff_dict = Diff()
         for each_patched_file in (*self.patch.modified_files, *self.patch.added_files):
             each_patched_file: PatchedFile
 
@@ -100,7 +156,7 @@ class SmartDiff(_PatchMixin, _CocaMixin):
             diff_dict[target_file] = diff_block_list
         return diff_dict
 
-    def find_diff_methods(self) -> dict:
+    def find_diff_methods(self) -> Diff:
         assert self.verify()
 
         # deps created from current rev
@@ -109,7 +165,6 @@ class SmartDiff(_PatchMixin, _CocaMixin):
         # mapping
         for file_name, blocks in diff_dict.items():
             if file_name not in self.coca_deps:
-                print(f"file {file_name} not in deps")
                 continue
 
             cur_nodes = self.coca_deps[file_name]
@@ -125,9 +180,14 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                         if not each_function["Name"]:
                             continue
                         function_pos = each_function["Position"]
-                        if (
-                            block_stop >= function_pos["StartLine"]
-                            or block_start <= function_pos["StopLine"]
+                        function_start = int(function_pos["StartLine"])
+                        function_stop = int(function_pos["StopLine"])
+                        # match?
+                        if max(function_start, block_start) < min(
+                            function_stop, block_stop
                         ):
+                            # `Type` is always `Class`
+                            each_function["NodeName"] = each_node["NodeName"]
+                            each_function["Package"] = each_node["Package"]
                             each_diff_block.affected_functions.append(each_function)
         return diff_dict
