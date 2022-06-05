@@ -125,6 +125,35 @@ class Diff(dict):
         with open(file_path, "w", **kwargs) as f:
             f.write(self.to_json())
 
+    def to_dot_graph(self) -> pydot.Dot:
+        graph = pydot.Dot()
+        for file_name, blocks in self.items():
+            cur_dot = pydot.Node(file_name, label=file_name)
+            graph.add_node(cur_dot)
+
+            # blocks
+            for each_block in blocks:
+                each_block: DiffBlock
+                cur_block_dot = pydot.Node(
+                    f"{cur_dot.get_name()[1:-1]}-{each_block.start}-{each_block.end}",
+                    label=f"{each_block.start}-{each_block.end}",
+                )
+                graph.add_node(cur_block_dot)
+                graph.add_edge(pydot.Edge(cur_dot.get_name(), cur_block_dot.get_name()))
+
+                # affected functions
+                for each_affected in each_block.affected_functions:
+                    cur_func_dot = pydot.Node(
+                        f"{cur_block_dot.get_name()[1:-1]}-{each_affected['Name']}",
+                        label=each_affected["Name"],
+                    )
+                    graph.add_node(cur_func_dot)
+                    graph.add_edge(
+                        pydot.Edge(cur_block_dot.get_name(), cur_func_dot.get_name())
+                    )
+
+        return graph
+
 
 class SmartDiff(_PatchMixin, _CocaMixin):
     def __init__(self):
