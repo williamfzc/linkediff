@@ -108,12 +108,24 @@ class _CocaMixin(object):
         self.coca_deps = ret
 
 
+class AffectedFunction(dict):
+    def get_name(self) -> str:
+        return self["Name"]
+
+    def get_full_name(self) -> str:
+        return f"{self['Package']}.{self['NodeName']}.{self['Name']}"
+
+
+class AffectedCall(dict):
+    pass
+
+
 class DiffBlock(BaseModel):
     file = ""
     start: int = -1
     end: int = -1
-    affected_functions: typing.List[dict] = []
-    affected_calls: typing.List[dict] = []
+    affected_functions: typing.List[AffectedFunction] = []
+    affected_calls: typing.List[AffectedCall] = []
     affected_r_calls: typing.List[dict] = []
 
 
@@ -125,6 +137,8 @@ class Diff(dict):
         with open(file_path, "w", **kwargs) as f:
             f.write(self.to_json())
 
+    # todo: dot graph is too huge to read
+    # maybe xmind?
     def to_dot_graph(self) -> pydot.Dot:
         graph = pydot.Dot()
         for file_name, blocks in self.items():
@@ -144,13 +158,38 @@ class Diff(dict):
                 # affected functions
                 for each_affected in each_block.affected_functions:
                     cur_func_dot = pydot.Node(
-                        f"{cur_block_dot.get_name()[1:-1]}-{each_affected['Name']}",
-                        label=each_affected["Name"],
+                        # todo: bad magic number
+                        f"{cur_block_dot.get_name()[1:-1]}-{each_affected.get_name()}",
+                        label=each_affected.get_name(),
                     )
                     graph.add_node(cur_func_dot)
                     graph.add_edge(
                         pydot.Edge(cur_block_dot.get_name(), cur_func_dot.get_name())
                     )
+
+                    # calls
+                    calls_dot = pydot.Node(
+                        f"{cur_func_dot.get_name()[1:-1]}-calls", label="calls"
+                    )
+                    graph.add_node(calls_dot)
+                    graph.add_edge(
+                        pydot.Edge(cur_func_dot.get_name(), calls_dot.get_name())
+                    )
+
+                    for each_call in each_block.affected_calls:
+                        call_src = each_call["src"]
+                        call_dst = each_call["dst"]
+                        # todo: duplicated logic
+                        full_call = each_affected.get_full_name()
+                        if call_src != full_call:
+                            continue
+                        each_call_dot = pydot.Node(
+                            f"{calls_dot.get_name()[1:-1]}-{call_dst}", label=call_dst
+                        )
+                        graph.add_node(each_call_dot)
+                        graph.add_edge(
+                            pydot.Edge(calls_dot.get_name(), each_call_dot.get_name())
+                        )
 
         return graph
 
@@ -185,11 +224,15 @@ class SmartDiff(_PatchMixin, _CocaMixin):
             diff_dict[target_file] = diff_block_list
         return diff_dict
 
-    def find_diff_methods(self) -> Diff:
+    def find_affected_functions(self, diff: Diff = None) -> Diff:
         assert self.verify()
 
         # deps created from current rev
-        diff_dict = self.find_diff_blocks()
+        if not diff:
+            diff_dict = self.find_diff_blocks()
+        else:
+            diff_dict = diff
+        assert diff_dict
 
         # mapping
         for file_name, blocks in diff_dict.items():
@@ -219,4 +262,23 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                             each_function["NodeName"] = each_node["NodeName"]
                             each_function["Package"] = each_node["Package"]
                             each_diff_block.affected_functions.append(each_function)
+        return diff_dict
+
+    def find_affected_calls(self, diff: Diff = None) -> Diff:
+        assert self.verify()
+
+        # deps created from current rev
+        if not diff:
+            diff_dict = self.find_affected_functions()
+        else:
+            diff_dict = diff
+        assert diff_dict
+
+        # mapping
+        for file_name, blocks in diff_dict.items():
+            for each_block in blocks:
+                each_block: DiffBlock
+                for each_func in each_block.affected_functions:
+                    full_call = each_func.get_full_name()
+                    each_block.affected_calls = self.exec_coca_call_graph(full_call, "")
         return diff_dict
