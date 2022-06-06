@@ -24,21 +24,42 @@ import json
 import subprocess
 import typing
 import os
+import pathlib
 
 import pydot
+import xmind
 from unidiff import PatchSet, PatchedFile, Hunk
 from pydantic import BaseModel
+
+
+class AffectedFunction(dict):
+    def get_name(self) -> str:
+        return self["Name"]
+
+    def get_package_name(self) -> str:
+        return self["Package"]
+
+    def get_full_name(self) -> str:
+        return f"{self.get_package_name()}.{self['NodeName']}.{self['Name']}"
+
+
+class AffectedCall(dict):
+    def get_src(self) -> str:
+        return self["src"]
+
+    def get_dst(self) -> str:
+        return self["dst"]
 
 
 class _PatchMixin(object):
     def __init__(self):
         self.patch: typing.Optional[PatchSet] = None
 
-    def load_patch_from_name(self, patch_file: str):
-        self.patch = PatchSet.from_filename(patch_file)
+    def load_patch_from_name(self, patch_file: str, **kwargs):
+        self.patch = PatchSet.from_filename(patch_file, **kwargs)
 
-    def load_patch_from_string(self, patch_str: str):
-        self.patch = PatchSet.from_string(patch_str)
+    def load_patch_from_string(self, patch_str: str, **kwargs):
+        self.patch = PatchSet.from_string(patch_str, **kwargs)
 
 
 class _CocaMixin(object):
@@ -48,25 +69,35 @@ class _CocaMixin(object):
 
     TAG_SRC = "src"
     TAG_DST = "dst"
+    CHARSET = "utf-8"
 
     def __init__(self):
         self.coca_cmd = "coca"
-        self.coca_deps_path = "./coca_reporter/deps.json"
-        self.coca_call_path = "./coca_reporter/call.dot"
+        self.coca_workspace = pathlib.Path(".")
         self.coca_deps = None
 
+    @property
+    def coca_deps_path(self) -> pathlib.Path:
+        return self.coca_workspace / "coca_reporter" / "deps.json"
+
+    @property
+    def coca_call_path(self) -> pathlib.Path:
+        return self.coca_workspace / "coca_reporter" / "call.dot"
+
     def exec_coca_analysis(self):
-        subprocess.check_call([self.coca_cmd, "analysis"])
+        subprocess.check_call([self.coca_cmd, "analysis"], cwd=self.coca_workspace)
 
     def exec_coca_call_graph(
         self, function_name: str, package_range: str, direct_only: bool = True
-    ) -> typing.List[typing.Dict]:
-        if os.path.isfile(self.coca_call_path):
-            os.remove(self.coca_call_path)
+    ) -> typing.List[AffectedCall]:
+        if self.coca_call_path.is_file():
+            self.coca_call_path.unlink()
 
         cmd = [self.coca_cmd, "call", "-c", function_name]
+        # will not use this filter which causes some path issues
         if package_range:
             cmd += ["-r", f"{package_range}."]
+
         subprocess.check_call(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -90,38 +121,30 @@ class _CocaMixin(object):
                 ret.add(cur)
 
         return [
-            dict(zip((self.TAG_SRC, self.TAG_DST, self.TAG_TYPE), each)) for each in ret
+            AffectedCall(zip((self.TAG_SRC, self.TAG_DST, self.TAG_TYPE), each))
+            for each in ret
         ]
 
     def dep_existed(self) -> bool:
         return self.coca_deps is not None
 
     def load_deps(self):
-        with open(self.coca_deps_path) as f:
+        with self.coca_deps_path.open(encoding=self.CHARSET) as f:
             raw_coca_deps = json.load(f)
         ret = dict()
         for each in raw_coca_deps:
             file_path = each["FilePath"]
+            # replace '\'
+            file_path = pathlib.Path(file_path).as_posix()
+
             if file_path not in ret:
                 ret[file_path] = []
             ret[file_path].append(each)
         self.coca_deps = ret
 
 
-class AffectedFunction(dict):
-    def get_name(self) -> str:
-        return self["Name"]
-
-    def get_full_name(self) -> str:
-        return f"{self['Package']}.{self['NodeName']}.{self['Name']}"
-
-
-class AffectedCall(dict):
-    pass
-
-
 class DiffBlock(BaseModel):
-    file = ""
+    file: str = ""
     start: int = -1
     end: int = -1
     affected_functions: typing.List[AffectedFunction] = []
@@ -158,7 +181,6 @@ class Diff(dict):
                 # affected functions
                 for each_affected in each_block.affected_functions:
                     cur_func_dot = pydot.Node(
-                        # todo: bad magic number
                         f"{cur_block_dot.get_name()[1:-1]}-{each_affected.get_name()}",
                         label=each_affected.get_name(),
                     )
@@ -177,9 +199,8 @@ class Diff(dict):
                     )
 
                     for each_call in each_block.affected_calls:
-                        call_src = each_call["src"]
-                        call_dst = each_call["dst"]
-                        # todo: duplicated logic
+                        call_src = each_call.get_src()
+                        call_dst = each_call.get_dst()
                         full_call = each_affected.get_full_name()
                         if call_src != full_call:
                             continue
@@ -192,6 +213,40 @@ class Diff(dict):
                         )
 
         return graph
+
+    def to_xmind_file(self, file_path: str):
+        workbook = xmind.load(file_path)
+        sheet = workbook.getPrimarySheet()
+        root = sheet.getRootTopic()
+        for file_name, blocks in self.items():
+            cur_file_node = root.addSubTopic()
+            cur_file_node.setTitle(file_name)
+
+            # blocks
+            for each_block in blocks:
+                each_block: DiffBlock
+
+                cur_block_node = cur_file_node.addSubTopic()
+                cur_block_node.setTitle(f"{each_block.start}-{each_block.end}")
+
+                # affected functions
+                for each_affected in each_block.affected_functions:
+                    cur_affected_node = cur_block_node.addSubTopic()
+                    cur_affected_node.setTitle(each_affected.get_full_name())
+
+                    calls_node = cur_affected_node.addSubTopic()
+                    calls_node.setTitle("calls")
+
+                    for each_call in each_block.affected_calls:
+                        call_src = each_call.get_src()
+                        call_dst = each_call.get_dst()
+                        full_call = each_affected.get_full_name()
+                        if call_src != full_call:
+                            continue
+                        cur_call_node = calls_node.addSubTopic()
+                        cur_call_node.setTitle(call_dst)
+
+        xmind.save(workbook)
 
 
 class SmartDiff(_PatchMixin, _CocaMixin):
@@ -261,10 +316,12 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                             # `Type` is always `Class`
                             each_function["NodeName"] = each_node["NodeName"]
                             each_function["Package"] = each_node["Package"]
-                            each_diff_block.affected_functions.append(each_function)
+                            each_diff_block.affected_functions.append(
+                                AffectedFunction(**each_function)
+                            )
         return diff_dict
 
-    def find_affected_calls(self, diff: Diff = None) -> Diff:
+    def find_affected_calls(self, diff: Diff = None, package_range: str = None) -> Diff:
         assert self.verify()
 
         # deps created from current rev
@@ -280,5 +337,12 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                 each_block: DiffBlock
                 for each_func in each_block.affected_functions:
                     full_call = each_func.get_full_name()
-                    each_block.affected_calls = self.exec_coca_call_graph(full_call, "")
+                    all_calls = self.exec_coca_call_graph(full_call, "")
+                    if not package_range:
+                        continue
+                    each_block.affected_calls = [
+                        each
+                        for each in all_calls
+                        if each.get_dst().startswith(package_range)
+                    ]
         return diff_dict

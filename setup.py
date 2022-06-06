@@ -29,5 +29,6 @@ setup(
         "unidiff",
         "pydot",
         "pydantic",
+        "xmind",
     ],
 )
