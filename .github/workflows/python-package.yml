@@ -48,3 +48,6 @@ jobs:
           mv ./coca_linux ./coca
           chmod +x ./coca
           ./coca version
+
+          smartdiff init --patch_file=./diff.patch --to_xmind=./result.xmind --coca_cmd=./coca --package_range=com.google
+          smartdiff run

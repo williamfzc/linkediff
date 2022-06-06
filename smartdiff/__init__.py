@@ -426,9 +426,8 @@ class SmartDiff(_PatchMixin, _CocaMixin):
 class SmartDiffConfig(BaseModel):
     _CONFIG_FILE_NAME: str = ".smartdiff.json"
 
-    version: int = 0
     coca_cmd: str = "coca"
-    patch_file: str
+    patch_file: str = ""
 
     package_range: str = ""
     to_json: str = ""
@@ -445,6 +444,10 @@ class SmartDiffConfig(BaseModel):
 class SmartDiffCli(object):
     def run(self):
         conf = SmartDiffConfig.init_from_project()
+        patch_file = pathlib.Path(conf.patch_file)
+        if not patch_file.is_file():
+            raise FileNotFoundError(f"no patch file found: {patch_file.absolute()}")
+
         sd = SmartDiff()
         sd.coca_cmd = conf.coca_cmd
         sd.load_patch_from_name(conf.patch_file)
@@ -458,6 +461,11 @@ class SmartDiffCli(object):
             result.to_json_file(conf.to_json)
         if conf.to_xmind:
             result.to_xmind_file(conf.to_xmind)
+
+    def init(self, **kwargs):
+        conf = SmartDiffConfig(**kwargs)
+        with open(conf._CONFIG_FILE_NAME, "w") as f:
+            f.write(conf.json())
 
 
 def main():
