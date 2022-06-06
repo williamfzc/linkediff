@@ -23,7 +23,6 @@
 import json
 import subprocess
 import typing
-import os
 import pathlib
 
 import pydot
@@ -84,20 +83,21 @@ class _CocaMixin(object):
     def coca_call_path(self) -> pathlib.Path:
         return self.coca_workspace / "coca_reporter" / "call.dot"
 
+    @property
+    def coca_r_call_path(self) -> pathlib.Path:
+        return self.coca_workspace / "coca_reporter" / "rcall.dot"
+
     def exec_coca_analysis(self):
         subprocess.check_call([self.coca_cmd, "analysis"], cwd=self.coca_workspace)
 
     def exec_coca_call_graph(
-        self, function_name: str, package_range: str, direct_only: bool = True
+        self, function_name: str, direct_only: bool = True
     ) -> typing.List[AffectedCall]:
         if self.coca_call_path.is_file():
             self.coca_call_path.unlink()
 
+        # will not use '-r' filter which causes some path issues
         cmd = [self.coca_cmd, "call", "-c", function_name]
-        # will not use this filter which causes some path issues
-        if package_range:
-            cmd += ["-r", f"{package_range}."]
-
         subprocess.check_call(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -115,6 +115,40 @@ class _CocaMixin(object):
                 each_edge.get_destination()[1:-1],
                 self.TYPE_DIRECT
                 if function_name in each_edge.get_source()
+                else self.TYPE_INDIRECT,
+            )
+            if direct_only and cur[2] == self.TYPE_DIRECT:
+                ret.add(cur)
+
+        return [
+            AffectedCall(zip((self.TAG_SRC, self.TAG_DST, self.TAG_TYPE), each))
+            for each in ret
+        ]
+
+    def exec_coca_r_call_graph(
+        self, function_name: str, direct_only: bool = True
+    ) -> typing.List[AffectedCall]:
+        if self.coca_call_path.is_file():
+            self.coca_call_path.unlink()
+
+        cmd = [self.coca_cmd, "rcall", "-c", function_name]
+        subprocess.check_call(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        graphs = pydot.graph_from_dot_file(self.coca_r_call_path)
+        # only one graph
+        graph = graphs[0]
+        ret = set()
+
+        for each_edge in graph.get_edge_list():
+            cur = (
+                # remove extra `"`
+                each_edge.get_source()[1:-1],
+                each_edge.get_destination()[1:-1],
+                self.TYPE_DIRECT
+                if function_name in each_edge.get_destination()
                 else self.TYPE_INDIRECT,
             )
             if direct_only and cur[2] == self.TYPE_DIRECT:
@@ -149,7 +183,7 @@ class DiffBlock(BaseModel):
     end: int = -1
     affected_functions: typing.List[AffectedFunction] = []
     affected_calls: typing.List[AffectedCall] = []
-    affected_r_calls: typing.List[dict] = []
+    affected_r_calls: typing.List[AffectedCall] = []
 
 
 class Diff(dict):
@@ -235,7 +269,7 @@ class Diff(dict):
                     cur_affected_node.setTitle(each_affected.get_full_name())
 
                     calls_node = cur_affected_node.addSubTopic()
-                    calls_node.setTitle("calls")
+                    calls_node.setTitle("call")
 
                     for each_call in each_block.affected_calls:
                         call_src = each_call.get_src()
@@ -245,6 +279,18 @@ class Diff(dict):
                             continue
                         cur_call_node = calls_node.addSubTopic()
                         cur_call_node.setTitle(call_dst)
+
+                    r_calls_node = cur_affected_node.addSubTopic()
+                    r_calls_node.setTitle("be called")
+
+                    for each_r_call in each_block.affected_r_calls:
+                        call_src = each_r_call.get_src()
+                        call_dst = each_r_call.get_dst()
+                        full_call = each_affected.get_full_name()
+                        if call_dst != full_call:
+                            continue
+                        cur_call_node = r_calls_node.addSubTopic()
+                        cur_call_node.setTitle(call_src)
 
         xmind.save(workbook)
 
@@ -321,7 +367,9 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                             )
         return diff_dict
 
-    def find_affected_calls(self, diff: Diff = None, package_range: str = None) -> Diff:
+    def find_affected_calls(
+        self, diff: Diff = None, package_range: str = None, reverse_call: bool = None
+    ) -> Diff:
         assert self.verify()
 
         # deps created from current rev
@@ -337,12 +385,40 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                 each_block: DiffBlock
                 for each_func in each_block.affected_functions:
                     full_call = each_func.get_full_name()
-                    all_calls = self.exec_coca_call_graph(full_call, "")
+                    each_block.affected_calls = self.exec_coca_call_graph(full_call)
                     if not package_range:
                         continue
                     each_block.affected_calls = [
                         each
-                        for each in all_calls
+                        for each in each_block.affected_calls
+                        if each.get_dst().startswith(package_range)
+                    ]
+        return diff_dict
+
+    def find_affected_r_calls(
+        self, diff: Diff = None, package_range: str = None
+    ) -> Diff:
+        assert self.verify()
+
+        # deps created from current rev
+        if not diff:
+            diff_dict = self.find_affected_functions()
+        else:
+            diff_dict = diff
+        assert diff_dict
+
+        # mapping
+        for file_name, blocks in diff_dict.items():
+            for each_block in blocks:
+                each_block: DiffBlock
+                for each_func in each_block.affected_functions:
+                    full_call = each_func.get_full_name()
+                    each_block.affected_r_calls = self.exec_coca_r_call_graph(full_call)
+                    if not package_range:
+                        continue
+                    each_block.affected_r_calls = [
+                        each
+                        for each in each_block.affected_r_calls
                         if each.get_dst().startswith(package_range)
                     ]
         return diff_dict
