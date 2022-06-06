@@ -181,6 +181,7 @@ class DiffBlock(BaseModel):
     file: str = ""
     start: int = -1
     end: int = -1
+    affected_lines: typing.List[int] = []
     affected_functions: typing.List[AffectedFunction] = []
     affected_calls: typing.List[AffectedCall] = []
     affected_r_calls: typing.List[AffectedCall] = []
@@ -318,8 +319,17 @@ class SmartDiff(_PatchMixin, _CocaMixin):
 
                 diff_block = DiffBlock()
                 diff_block.file = target_file
-                diff_block.start = each_block.target_start
-                diff_block.end = each_block.target_start + each_block.target_length
+
+                # diff origin new
+                # https://en.wikipedia.org/wiki/Diff
+                diff_block.affected_lines = [
+                    each_line.target_line_no
+                    for each_line in each_block.target_lines()
+                    if each_line.is_added
+                ]
+                diff_block.start = diff_block.affected_lines[0]
+                diff_block.end = diff_block.affected_lines[-1]
+
                 diff_block_list.append(diff_block)
 
             diff_dict[target_file] = diff_block_list
