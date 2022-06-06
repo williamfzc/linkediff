@@ -438,9 +438,7 @@ class SmartDiffConfig(BaseModel):
     def init_from_project() -> "SmartDiffConfig":
         config = pathlib.Path(SmartDiffConfig._CONFIG_FILE_NAME)
         if not config.is_file():
-            raise FileNotFoundError(
-                f"no config file found: {config.absolute()}"
-            )
+            raise FileNotFoundError(f"no config file found: {config.absolute()}")
         return SmartDiffConfig.parse_file(SmartDiffConfig._CONFIG_FILE_NAME)
 
 
