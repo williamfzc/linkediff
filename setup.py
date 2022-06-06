@@ -30,5 +30,7 @@ setup(
         "pydot",
         "pydantic",
         "xmind",
+        "fire",
     ],
+    entry_points={"console_scripts": ["smartdiff = smartdiff:main"]},
 )

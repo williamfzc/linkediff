@@ -29,6 +29,7 @@ import pydot
 import xmind
 from unidiff import PatchSet, PatchedFile, Hunk
 from pydantic import BaseModel
+import fire
 
 
 class AffectedFunction(dict):
@@ -367,9 +368,7 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                             )
         return diff_dict
 
-    def find_affected_calls(
-        self, diff: Diff = None, package_range: str = None, reverse_call: bool = None
-    ) -> Diff:
+    def find_affected_calls(self, diff: Diff = None, package_range: str = None) -> Diff:
         assert self.verify()
 
         # deps created from current rev
@@ -422,3 +421,50 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                         if each.get_dst().startswith(package_range)
                     ]
         return diff_dict
+
+
+class SmartDiffConfig(BaseModel):
+    _CONFIG_FILE_NAME: str = ".smartdiff.json"
+
+    version: int = 0
+    coca_cmd: str = "coca"
+    patch_file: str
+
+    package_range: str = ""
+    to_json: str = ""
+    to_xmind: str = ""
+
+    @staticmethod
+    def init_from_project() -> "SmartDiffConfig":
+        config = pathlib.Path(SmartDiffConfig._CONFIG_FILE_NAME)
+        if not config.is_file():
+            raise FileNotFoundError(
+                f"no config file found: {config.absolute()}"
+            )
+        return SmartDiffConfig.parse_file(SmartDiffConfig._CONFIG_FILE_NAME)
+
+
+class SmartDiffCli(object):
+    def run(self):
+        conf = SmartDiffConfig.init_from_project()
+        sd = SmartDiff()
+        sd.coca_cmd = conf.coca_cmd
+        sd.load_patch_from_name(conf.patch_file)
+        sd.exec_coca_analysis()
+        sd.load_deps()
+
+        result = sd.find_affected_calls(package_range=conf.package_range)
+        result = sd.find_affected_r_calls(result, package_range=conf.package_range)
+
+        if conf.to_json:
+            result.to_json_file(conf.to_json)
+        if conf.to_xmind:
+            result.to_xmind_file(conf.to_xmind)
+
+
+def main():
+    fire.Fire(SmartDiffCli)
+
+
+if __name__ == "__main__":
+    main()
