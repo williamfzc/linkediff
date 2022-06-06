@@ -32,5 +32,5 @@ setup(
         "xmind",
         "fire",
     ],
-    entry_points={"console_scripts": ["smartdiff = smartdiff:main"]},
+    entry_points={"console_scripts": ["smartdiff = smartdiff.cli:main"]},
 )
