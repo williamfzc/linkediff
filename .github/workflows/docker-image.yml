@@ -1,17 +1,22 @@
 name: Docker Image CI
 
+env:
+  DOCKER_USER: ${{secrets.DOCKER_USER}}
+  DOCKER_PASSWORD: ${{secrets.DOCKER_PASSWORD}}
+
 on:
   push:
-    tags:        
-      - 'v*'
+    tags:
+      - '*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build the Docker image
-      run: |
-        docker build . --file Dockerfile --tag williamfzc/linkediff:${{github.ref_name}}
-        docker push williamfzc/linkediff:${{github.ref_name}}
+      - uses: actions/checkout@v3
+      - name: Build the Docker image
+        run: |
+          docker login -u $DOCKER_USER -p $DOCKER_PASSWORD
+          docker build . --file Dockerfile --tag williamfzc/linkediff:${{github.ref_name}}
+          docker push williamfzc/linkediff:${{github.ref_name}}
