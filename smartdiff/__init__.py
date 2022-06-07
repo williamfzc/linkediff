@@ -327,6 +327,10 @@ class SmartDiff(_PatchMixin, _CocaMixin):
                     for each_line in each_block.target_lines()
                     if each_line.is_added
                 ]
+                if not diff_block.affected_lines:
+                    # this block has been removed, so ignore
+                    # todo: should be ignored?
+                    continue
                 diff_block.start = diff_block.affected_lines[0]
                 diff_block.end = diff_block.affected_lines[-1]
 
