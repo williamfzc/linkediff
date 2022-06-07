@@ -60,6 +60,11 @@ class _PatchMixin(object):
     def load_patch_from_string(self, patch_str: str, **kwargs):
         self.patch = PatchSet.from_string(patch_str, **kwargs)
 
+    def load_patch_from_cmd(self, patch_cmd: str, **kwargs):
+        return self.load_patch_from_string(
+            subprocess.check_output(patch_cmd, **kwargs).decode()
+        )
+
 
 class _CocaMixin(object):
     TAG_TYPE = "type"
@@ -361,8 +366,6 @@ class Linkediff(_PatchMixin, _CocaMixin):
                     continue
 
                 for each_diff_block in blocks:
-                    block_start = each_diff_block.start
-                    block_stop = each_diff_block.end
                     for each_function in functions:
                         if not each_function["Name"]:
                             continue
@@ -370,15 +373,15 @@ class Linkediff(_PatchMixin, _CocaMixin):
                         function_start = int(function_pos["StartLine"])
                         function_stop = int(function_pos["StopLine"])
                         # match?
-                        if max(function_start, block_start) < min(
-                            function_stop, block_stop
-                        ):
-                            # `Type` is always `Class`
-                            each_function["NodeName"] = each_node["NodeName"]
-                            each_function["Package"] = each_node["Package"]
-                            each_diff_block.affected_functions.append(
-                                AffectedFunction(**each_function)
-                            )
+                        for each_line in each_diff_block.affected_lines:
+                            if function_start <= each_line <= function_stop:
+                                # `Type` is always `Class`
+                                each_function["NodeName"] = each_node["NodeName"]
+                                each_function["Package"] = each_node["Package"]
+                                each_diff_block.affected_functions.append(
+                                    AffectedFunction(**each_function)
+                                )
+                                break
         return diff_dict
 
     def find_affected_calls(self, diff: Diff = None, package_range: str = None) -> Diff:

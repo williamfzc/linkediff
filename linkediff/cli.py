@@ -9,30 +9,36 @@ CONFIG_FILE_NAME = ".linkediff.json"
 
 class LinkediffConfig(BaseModel):
     coca_cmd: str = "coca"
+    patch_cmd: str = "git diff HEAD~1 HEAD"
     patch_file: str = ""
 
     package_range: str = ""
-    to_json: str = ""
-    to_xmind: str = ""
+    to_json: str = "ldresult.json"
+    to_xmind: str = "ldresult.xmind"
 
     @staticmethod
     def init_from_project() -> "LinkediffConfig":
-        config = pathlib.Path(CONFIG_FILE_NAME)
-        if not config.is_file():
-            raise FileNotFoundError(f"no config file found: {config.absolute()}")
         return LinkediffConfig.parse_file(CONFIG_FILE_NAME)
+
+    @staticmethod
+    def config_file_existed() -> bool:
+        return pathlib.Path(CONFIG_FILE_NAME).is_file()
 
 
 class LinkediffCli(object):
-    def run(self):
+    def run(self, **kwargs):
+        if not LinkediffConfig.config_file_existed():
+            self.init(**kwargs)
         conf = LinkediffConfig.init_from_project()
-        patch_file = pathlib.Path(conf.patch_file)
-        if not patch_file.is_file():
-            raise FileNotFoundError(f"no patch file found: {patch_file.absolute()}")
-
         sd = Linkediff()
         sd.coca_cmd = conf.coca_cmd
-        sd.load_patch_from_name(conf.patch_file)
+
+        patch_file = pathlib.Path(conf.patch_file)
+        if patch_file.is_file():
+            sd.load_patch_from_name(conf.patch_file)
+        else:
+            sd.load_patch_from_cmd(conf.patch_cmd)
+
         sd.exec_coca_analysis()
         sd.load_deps()
 
@@ -46,7 +52,6 @@ class LinkediffCli(object):
 
     def init(self, **kwargs):
         conf = LinkediffConfig(**kwargs)
-        conf.patch_file = "./diff.patch"
 
         with open(CONFIG_FILE_NAME, "w") as f:
             f.write(conf.json(indent=4))
