@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
-__PROJECT_NAME__ = r"smartdiff"
+__PROJECT_NAME__ = r"linkediff"
 __AUTHOR__ = r"williamfzc"
 __AUTHOR_EMAIL__ = r"fengzc@vip.qq.com"
 __LICENSE__ = r"MIT"
-__URL__ = r"https://github.com/williamfzc/smart-diff"
+__URL__ = r"https://github.com/williamfzc/linkediff"
 __VERSION__ = r"0.1.0"
 __DESCRIPTION__ = r"diff analysis"
 
@@ -32,5 +32,5 @@ setup(
         "xmind",
         "fire",
     ],
-    entry_points={"console_scripts": ["smartdiff = smartdiff.cli:main"]},
+    entry_points={"console_scripts": ["linkediff = linkediff.cli:main"]},
 )

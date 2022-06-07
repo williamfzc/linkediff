@@ -49,6 +49,6 @@ jobs:
           chmod +x ./coca
           ./coca version
 
-          smartdiff init --patch_file=./diff.patch --to_xmind=./result.xmind --to_json=./result.json --coca_cmd=./coca --package_range=org.jacoco
-          smartdiff run
+          linkediff init --patch_file=./diff.patch --to_xmind=./result.xmind --to_json=./result.json --coca_cmd=./coca --package_range=org.jacoco
+          linkediff run
           cat ./result.json

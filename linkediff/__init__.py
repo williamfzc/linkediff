@@ -296,7 +296,7 @@ class Diff(dict):
         xmind.save(workbook)
 
 
-class SmartDiff(_PatchMixin, _CocaMixin):
+class Linkediff(_PatchMixin, _CocaMixin):
     def __init__(self):
         super(_PatchMixin, self).__init__()
         super(_CocaMixin, self).__init__()

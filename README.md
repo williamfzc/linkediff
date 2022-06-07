@@ -1,2 +1,2 @@
-# smart-diff
+# Linke (D) iff
 diff analysis
