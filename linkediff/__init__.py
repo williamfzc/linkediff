@@ -62,7 +62,7 @@ class _PatchMixin(object):
 
     def load_patch_from_cmd(self, patch_cmd: str, **kwargs):
         return self.load_patch_from_string(
-            subprocess.check_output(patch_cmd, **kwargs).decode()
+            subprocess.check_output(patch_cmd, **kwargs, shell=True).decode()
         )
 
 
