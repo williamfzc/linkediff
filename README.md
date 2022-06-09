@@ -20,6 +20,52 @@ linkediff 可以在无需编译的情况下对你的代码进行解析，指出d
 
 他同时也生成易处理的JSON文件便于与其他系统（如CI）配合。
 
+```json5
+{
+  "sibyl-core/src/main/java/com/williamfzc/sibyl/core/listener/java8/Java8MethodListener.java": [
+    {
+      "start": 9,
+      "end": 15,
+      "affected_functions": [
+        {
+          "Name": "enterClassDeclaration",
+          "ReturnType": "void",
+          "MultipleReturns": null,
+          "Parameters": [
+            {
+              "Modifiers": null,
+              "ParamName": "",
+              "TypeValue": "ctx",
+              "TypeType": "Java8Parser.ClassDeclarationContext",
+              "ReturnTypes": null,
+              "Parameters": null
+            }
+          ],
+          "FunctionCalls": [
+            {
+              "Package": "com.williamfzc.sibyl.core.listener",
+              "Type": "chain",
+              "NodeName": "Java8Parser.ClassDeclarationContext",
+              "FunctionName": "normalClassDeclaration",
+              "Parameters": null,
+              "Position": {
+                "StartLine": 55,
+                "StartLinePosition": 20,
+                "StopLine": 55,
+                "StopLinePosition": 42
+              }
+            }
+            ...
+          ]
+        }
+        ...
+      ]
+    }
+    ...
+  ]
+}
+```
+
 ## 使用
 
 当前只支持java项目。
@@ -57,6 +103,8 @@ linkediff run
 ### 结果
 
 在运行完成后你可以看到一些结果文件，如 `ldresult.json`, `ldresult.xmind`。结合自身需要进一步处理即可。
+
+> 由于xmind没有官方sdk，生成的xmind文件只能使用xmind8打开，详见 [#1](https://github.com/williamfzc/linkediff/issues/1) 。
 
 ### 如果依旧遇到困难
 
