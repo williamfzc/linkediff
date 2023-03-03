@@ -1,3 +1,11 @@
+# 已废弃
+
+该项目转由 opensibyl 社区统一继续开发。
+
+https://github.com/opensibyl
+
+---
+
 # Linke (D) iff
 
 linked graph for diff
